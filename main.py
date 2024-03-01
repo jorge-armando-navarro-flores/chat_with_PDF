@@ -1,4 +1,5 @@
 import os
+import gradio as gr
 from langchain_openai import ChatOpenAI
 from langchain_community.llms import Ollama
 from langchain_openai import OpenAIEmbeddings
@@ -80,7 +81,7 @@ class Chatbot:
 
 
 chatbot = Chatbot()
-chatbot.get_docs("/home/jorgenavarro/PycharmProjects/chat_with_PDF/La temporada invernal será más húmeda de lo normal y con precipitaciones.pdf")
+chatbot.get_docs("/home/jorge/Development/chat_with_PDF/La temporada invernal será más húmeda de lo normal y con precipitaciones.pdf")
 chatbot.get_chain()
 
 print(chatbot.predict("Who is Mauricio?"))
