@@ -13,6 +13,7 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_history_aware_retriever
 from langchain_core.prompts import MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
+import faiss
 
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
@@ -24,23 +25,29 @@ class Chatbot:
     def __init__(self):
         self.chat_history = []
         self.docs = []
-        self.chain = ChatOpenAI()
+        self.embeddings = OllamaEmbeddings() if not_openai else OpenAIEmbeddings()
+        self.vector = FAISS(
+            embedding_function=self.embeddings,
+            index=faiss.IndexFlatIP(768),
+            docstore=None,
+            index_to_docstore_id={}
+                                )
+        self.chain = Ollama(model="llama2") if not_openai else ChatOpenAI()
+        self.retrieval_chain = False
 
-    def get_docs(self, url):
-        loader = PyMuPDFLoader(url)
+    def get_docs(self, filepath):
+        loader = PyMuPDFLoader(filepath)
         docs = loader.load()
         self.docs = docs
 
     def get_vector(self):
-        embeddings = OllamaEmbeddings() if not_openai else OpenAIEmbeddings()
+
         text_splitter = RecursiveCharacterTextSplitter()
         documents = text_splitter.split_documents(self.docs)
-        vector = FAISS.from_documents(documents, embeddings)
-        return vector
+        self.vector = FAISS.from_documents(documents, self.embeddings)
 
     def get_chain(self):
-        vector = self.get_vector()
-        retriever = vector.as_retriever()
+        retriever = self.vector.as_retriever()
         llm = Ollama(model="llama2") if not_openai else ChatOpenAI()
 
         prompt = ChatPromptTemplate.from_messages(
@@ -68,22 +75,60 @@ class Chatbot:
         document_chain = create_stuff_documents_chain(llm, prompt)
 
         self.chain = create_retrieval_chain(retriever_chain, document_chain)
+        self.retrieval_chain = True
 
-    def predict(self, message):
+    def undo(self):
+        self.chat_history.pop()
+        self.chat_history.pop()
 
-        response = self.chain.invoke(
-            {"chat_history": self.chat_history, "input": message}
-        )
+    def clear(self):
+        self.chat_history = []
+
+    def predict(self, message, history):
+
+        if self.retrieval_chain:
+            response = self.chain.invoke(
+                {"chat_history": self.chat_history, "input": message}
+            )["answer"]
+        else:
+            response = self.chain.invoke(
+                message
+            ).content
+
         self.chat_history.append(HumanMessage(content=message))
-        self.chat_history.append(AIMessage(content=response["answer"]))
+        self.chat_history.append(AIMessage(content=response))
 
-        return response["answer"]
+        return response
+
+    def process(self, filepath):
+        self.get_docs(filepath)
+        self.get_vector()
+        self.get_chain()
+        return "Done"
+
+    def get_apa_reference(self, response):
+        r_docs = self.vector.similarity_search(response, k=2)
+        print(r_docs)
+
 
 
 chatbot = Chatbot()
-chatbot.get_docs("/home/jorge/Development/chat_with_PDF/La temporada invernal será más húmeda de lo normal y con precipitaciones.pdf")
-chatbot.get_chain()
 
-print(chatbot.predict("Who is Mauricio?"))
-print()
-print(chatbot.predict("What did he say?"))
+undo_button = gr.Button("↩️ Undo")
+clear_button = gr.Button("🗑️  Clear")
+
+
+with gr.Blocks() as demo:
+    undo_button.click(chatbot.undo)
+    clear_button.click(chatbot.clear())
+    gr.ChatInterface(chatbot.predict, retry_btn="🔄  Retry", undo_btn=undo_button, clear_btn=clear_button)
+
+    progress_bar = gr.Label("Upload your PDF")
+    file = gr.File(file_types=[".pdf"])
+    process_btn = gr.Button("Process")
+    process_btn.click(chatbot.process, file, progress_bar)
+
+
+if __name__ == "__main__":
+    demo.queue().launch()
+
