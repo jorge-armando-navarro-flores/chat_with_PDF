@@ -1,6 +1,7 @@
 import os
 import gradio as gr
 from langchain_openai import ChatOpenAI
+import subprocess
 from langchain_community.llms import Ollama
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
@@ -13,27 +14,38 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_history_aware_retriever
 from langchain_core.prompts import MessagesPlaceholder
 from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.output_parsers import StrOutputParser
+output_parser = StrOutputParser()
 import faiss
 
-
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+OPENAI_API_KEY = None # os.environ.get("OPENAI_API_KEY")
 os.environ["LANGCHAIN_API_KEY"] = os.environ.get("LANGCHAIN_API_KEY")
-not_openai = not OPENAI_API_KEY
+subprocess.run(['ollama', 'pull', 'gemma'])
 
 
 class Chatbot:
     def __init__(self):
+        self.not_openai = not OPENAI_API_KEY
         self.chat_history = []
         self.docs = []
-        self.embeddings = OllamaEmbeddings() if not_openai else OpenAIEmbeddings()
+        self.embeddings = OllamaEmbeddings() if self.not_openai else OpenAIEmbeddings()
         self.vector = FAISS(
             embedding_function=self.embeddings,
             index=faiss.IndexFlatIP(768),
             docstore=None,
             index_to_docstore_id={}
-                                )
-        self.chain = Ollama(model="llama2") if not_openai else ChatOpenAI()
+        )
+        self.model = "llama2:latest" if self.not_openai else "gpt-3.5-turbo"
+        self.llm = Ollama(model=self.model) if self.not_openai else ChatOpenAI(model=self.model)
+        self.chain = Ollama(model=self.model) if self.not_openai else ChatOpenAI(model=self.model) | output_parser
         self.retrieval_chain = False
+
+    def get_model(self):
+        return self.model
+
+    def set_model(self, model):
+        self.model = model
+        return "Process Again"
 
     def get_docs(self, filepath):
         loader = PyMuPDFLoader(filepath)
@@ -48,7 +60,7 @@ class Chatbot:
 
     def get_chain(self):
         retriever = self.vector.as_retriever()
-        llm = Ollama(model="llama2") if not_openai else ChatOpenAI()
+        self.llm = Ollama(model=self.model) if self.not_openai else ChatOpenAI(model=self.model)
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -60,7 +72,7 @@ class Chatbot:
                 ),
             ]
         )
-        retriever_chain = create_history_aware_retriever(llm, retriever, prompt)
+        retriever_chain = create_history_aware_retriever(self.llm, retriever, prompt)
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -72,7 +84,7 @@ class Chatbot:
                 ("user", "{input}"),
             ]
         )
-        document_chain = create_stuff_documents_chain(llm, prompt)
+        document_chain = create_stuff_documents_chain(self.llm, prompt)
 
         self.chain = create_retrieval_chain(retriever_chain, document_chain)
         self.retrieval_chain = True
@@ -93,7 +105,7 @@ class Chatbot:
         else:
             response = self.chain.invoke(
                 message
-            ).content
+            )
 
         self.chat_history.append(HumanMessage(content=message))
         self.chat_history.append(AIMessage(content=response))
@@ -110,13 +122,17 @@ class Chatbot:
         r_docs = self.vector.similarity_search(response, k=2)
         print(r_docs)
 
+    def get_models(self):
+        result = subprocess.run(['ollama', 'list'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        open_models = [m.split()[0] for m in result.stdout.decode('utf-8').split("\n")[1:-1]]
+        openai_models = ["gpt-3.5-turbo", "gpt-4"]
+        return open_models if self.not_openai else openai_models
 
 
 chatbot = Chatbot()
 
 undo_button = gr.Button("↩️ Undo")
 clear_button = gr.Button("🗑️  Clear")
-
 
 with gr.Blocks() as demo:
     undo_button.click(chatbot.undo)
@@ -125,10 +141,10 @@ with gr.Blocks() as demo:
 
     progress_bar = gr.Label("Upload your PDF")
     file = gr.File(file_types=[".pdf"])
+    selected_model = gr.Dropdown(value=chatbot.model, choices=chatbot.get_models(), container=False)
+    selected_model.change(chatbot.set_model, inputs=selected_model, outputs=progress_bar)
     process_btn = gr.Button("Process")
-    process_btn.click(chatbot.process, file, progress_bar)
-
+    process_btn.click(chatbot.process, inputs=file, outputs=progress_bar)
 
 if __name__ == "__main__":
     demo.queue().launch()
-
