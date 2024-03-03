@@ -20,7 +20,6 @@ import faiss
 
 OPENAI_API_KEY = None # os.environ.get("OPENAI_API_KEY")
 os.environ["LANGCHAIN_API_KEY"] = os.environ.get("LANGCHAIN_API_KEY")
-subprocess.run(['ollama', 'pull', 'gemma'])
 
 
 class Chatbot:
@@ -45,7 +44,7 @@ class Chatbot:
 
     def set_model(self, model):
         self.model = model
-        return "Process Again"
+        return "Upload and Process Again"
 
     def get_docs(self, filepath):
         loader = PyMuPDFLoader(filepath)
@@ -141,6 +140,8 @@ with gr.Blocks() as demo:
 
     progress_bar = gr.Label("Upload your PDF")
     file = gr.File(file_types=[".pdf"])
+    checkbox = gr.Checkbox()
+    print(checkbox)
     selected_model = gr.Dropdown(value=chatbot.model, choices=chatbot.get_models(), container=False)
     selected_model.change(chatbot.set_model, inputs=selected_model, outputs=progress_bar)
     process_btn = gr.Button("Process")
