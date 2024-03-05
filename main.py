@@ -18,9 +18,6 @@ from langchain_core.output_parsers import StrOutputParser
 output_parser = StrOutputParser()
 import faiss
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-os.environ["LANGCHAIN_API_KEY"] = os.environ.get("LANGCHAIN_API_KEY")
-
 
 class Chatbot:
     def __init__(self):
@@ -41,6 +38,7 @@ class Chatbot:
         self.retrieval_chain = False
 
     def set_openai(self, openai_api):
+        os.environ["OPENAI_API_KEY"] = openai_api
         self.openai = openai_api
         self.embeddings = OpenAIEmbeddings()
         self.model = "gpt-3.5-turbo"

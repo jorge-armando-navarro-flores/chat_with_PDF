@@ -3,5 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="Python 3.10 (chat_with_PDF)" />
   </component>
-  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.8 (chat_with_PDF)" project-jdk-type="Python SDK" />
+  <component name="ProjectRootManager" version="2" project-jdk-name="cwp" project-jdk-type="Python SDK" />
 </project>
