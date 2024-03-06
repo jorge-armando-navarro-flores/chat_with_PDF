@@ -11,7 +11,7 @@ To install the Chat With PDF App, please follow these steps:
    ```
    curl https://ollama.ai/install.sh | sh
    ```
-2. pull the chat models we will use [LLAMA2](https://ollama.ai/library/llama2), [MISTRAL](https://ollama.ai/library/mistral), [GEMMA](https://ollama.ai/library/gemma)
+2. pull the chat models we will use, in this case we will use [LLAMA2](https://ollama.ai/library/llama2), [MISTRAL](https://ollama.ai/library/mistral) and [GEMMA](https://ollama.ai/library/gemma)
    ```
    ollama pull llama2
    ```

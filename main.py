@@ -156,9 +156,9 @@ with gr.Blocks() as demo:
     progress_bar = gr.Label("Upload your PDF")
     file = gr.File(file_types=[".pdf"])
 
-    models = gr.Radio(label="Model Source", choices=["OpenAI", "Open Source"])
+    models = gr.Radio(value="Open Source", label="Model Source", choices=["OpenAI", "Open Source"])
     openai_api_text = gr.Text(placeholder="Open AI API key", visible=False, interactive=True, type="password")
-    selected_model = gr.Dropdown(label="Model", choices=[])
+    selected_model = gr.Dropdown(label="Model", choices=["llama2:latest"], value="llama2:latest")
 
     models_map = {
         "OpenAI": ["gpt-3.5-turbo", "gpt-4"],
