@@ -1,4 +1,4 @@
-# MultiPDF Chat App
+# Chat with PDF
 
 ## Introduction
 ------------
@@ -21,7 +21,7 @@ To install the Chat With PDF App, please follow these steps:
    ```
    ollama pull gemma
    ```
-3. Create new enviroment with python 3.9 and activate it, in this case we will use conda
+3. Create new environment with python 3.9 and activate it, in this case we will use [conda](https://www.anaconda.com/download)
    ```
    conda create -n cwp python=3.9
    ```
@@ -68,5 +68,5 @@ To use the Chat With PDF app, follow these steps:
 6. Click the process button and wait label say Done
 ![Upload PDF](./screenshots/cwp_done.png)
 
-7. Ask questions in natural language about the loaded PDFs using the chat interface.
+7. Ask questions in natural language about the loaded PDF using the chat interface.
 ![Ask to PDF](./screenshots/cwp_ask.png)
