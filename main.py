@@ -34,22 +34,20 @@ class Chatbot:
         )
         self.model = "llama2:latest"
         self.llm = Ollama(model=self.model)
-        self.chain = Ollama(model=self.model)
+        self.chain = self.get_conversational_chain()
         self.retrieval_chain = False
 
     def set_openai(self, openai_api):
         os.environ["OPENAI_API_KEY"] = openai_api
         self.openai = openai_api
         self.embeddings = OpenAIEmbeddings()
-        self.model = "gpt-3.5-turbo"
         self.llm = ChatOpenAI(model=self.model)
-        self.chain = ChatOpenAI(model=self.model) | output_parser
+        self.chain = self.get_conversational_chain()
 
     def set_opensource(self):
         self.embeddings = OllamaEmbeddings()
-        self.model = "llama2:latest"
         self.llm = Ollama(model=self.model)
-        self.chain = Ollama(model=self.model)
+        self.chain = self.get_conversational_chain()
         self.retrieval_chain = False
 
     def get_model(self):
@@ -58,6 +56,22 @@ class Chatbot:
     def set_model(self, model):
         self.model = model
         return "Upload and Process Again"
+
+    def get_conversational_chain(self):
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                MessagesPlaceholder(variable_name="chat_history"),
+                ("user", "{input}"),
+                (
+                    "user",
+                    "Given the above conversation, answer",
+                ),
+            ]
+        )
+
+        output_parser = StrOutputParser()
+        conversational_chain = prompt | self.llm | output_parser
+        return conversational_chain
 
     def get_docs(self, filepath):
         loader = PyMuPDFLoader(filepath)
@@ -116,7 +130,7 @@ class Chatbot:
             )["answer"]
         else:
             response = self.chain.invoke(
-                message
+                {"chat_history": self.chat_history, "input": message}
             )
 
         # self.get_apa_reference(response)
