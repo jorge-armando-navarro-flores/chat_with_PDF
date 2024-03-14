@@ -1,78 +1,110 @@
 import os
-import gradio as gr
-from langchain_openai import ChatOpenAI
-import subprocess
+from abc import ABC, abstractmethod
 from langchain_community.llms import Ollama
-from langchain_openai import OpenAIEmbeddings
-from langchain_community.vectorstores import FAISS
-from langchain.chains import create_retrieval_chain
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_community.embeddings import OllamaEmbeddings
-from langchain_community.document_loaders import PyMuPDFLoader
+from langchain_openai import ChatOpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain.chains import create_history_aware_retriever
+import gradio as gr
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_community.vectorstores import FAISS
+from langchain_openai import OpenAIEmbeddings
+from langchain_community.embeddings import OllamaEmbeddings
 from langchain_core.prompts import MessagesPlaceholder
-from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.messages import HumanMessage, AIMessage
+from langchain.chains import create_history_aware_retriever
+from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain.chains import create_retrieval_chain
+
 output_parser = StrOutputParser()
-import faiss
 
 
-class Chatbot:
-    def __init__(self):
-        self.openai = ""
-        print(not self.openai)
-        self.chat_history = []
-        self.docs = []
-        self.embeddings = OllamaEmbeddings()
-        self.vector = FAISS(
-            embedding_function=self.embeddings,
-            index=faiss.IndexFlatIP(768),
-            docstore=None,
-            index_to_docstore_id={}
-        )
-        self.model = "llama2:latest"
-        self.llm = Ollama(model=self.model)
-        self.chain = Ollama(model=self.model)
-        self.retrieval_chain = False
+class LLM(ABC):
+    def __init__(self, name: str):
+        self.name = name
+        self.llm = None
+        self.embeddings = None
 
-    def set_openai(self, openai_api):
-        os.environ["OPENAI_API_KEY"] = openai_api
-        self.openai = openai_api
+    def get_name(self):
+        return self.name
+
+    def get_llm(self):
+        return self.llm
+
+    def get_embeddings(self):
+        return self.embeddings
+
+
+class OpenAIModel(LLM):
+    def __init__(self, name: str, api_key: str):
+        super().__init__(name)
+        self.api_key = api_key
+        self.llm = ChatOpenAI(model=self.name, openai_api_key=openai_api_key)
         self.embeddings = OpenAIEmbeddings()
-        self.model = "gpt-3.5-turbo"
-        self.llm = ChatOpenAI(model=self.model)
-        self.chain = ChatOpenAI(model=self.model) | output_parser
 
-    def set_opensource(self):
+
+class OllamaModel(LLM):
+    def __init__(self, name: str):
+        super().__init__(name)
+        self.llm = Ollama(model=self.name)
         self.embeddings = OllamaEmbeddings()
-        self.model = "llama2:latest"
-        self.llm = Ollama(model=self.model)
-        self.chain = Ollama(model=self.model)
-        self.retrieval_chain = False
 
-    def get_model(self):
-        return self.model
 
-    def set_model(self, model):
-        self.model = model
-        return "Upload and Process Again"
+class VectorStore:
+    def __init__(self):
+        self.docs = None
+        self.vector = None
+        self.embeddings = None
 
-    def get_docs(self, filepath):
-        loader = PyMuPDFLoader(filepath)
+    def set_embeddings(self, embeddings):
+        self.embeddings = embeddings
+
+    def set_docs(self, filepath):
+        loader = PyPDFLoader(filepath)
         docs = loader.load()
         self.docs = docs
+        return docs
 
-    def get_vector(self):
-
+    def set_vector(self):
         text_splitter = RecursiveCharacterTextSplitter()
         documents = text_splitter.split_documents(self.docs)
-        self.vector = FAISS.from_documents(documents, self.embeddings)
+        vector = FAISS.from_documents(documents, self.embeddings)
+        self.vector = vector
 
-    def get_chain(self):
-        retriever = self.vector.as_retriever()
-        self.llm = Ollama(model=self.model) if not self.openai else ChatOpenAI(model=self.model)
+    def get_vector(self):
+        return self.vector
+
+    def get_docs(self):
+        return self.docs
+
+    def get_embeddings(self):
+        return self.embeddings
+
+
+class Chain:
+    def __init__(self, model: LLM):
+        self.model = model
+        self.chain = None
+
+    def set_simple_chain(self):
+        self.chain = self.model.llm | output_parser
+
+    def set_conversational_chain(self):
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                MessagesPlaceholder(variable_name="chat_history"),
+                ("user", "{input}"),
+                (
+                    "user",
+                    "Given the above conversation, answer",
+                ),
+            ]
+        )
+
+        self.chain = prompt | self.model.llm | output_parser
+
+    def set_retrieval_chain(self, vector: VectorStore):
+        retriever = vector.get_vector().as_retriever()
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -84,7 +116,7 @@ class Chatbot:
                 ),
             ]
         )
-        retriever_chain = create_history_aware_retriever(self.llm, retriever, prompt)
+        retriever_chain = create_history_aware_retriever(self.model.llm, retriever, prompt)
 
         prompt = ChatPromptTemplate.from_messages(
             [
@@ -96,90 +128,68 @@ class Chatbot:
                 ("user", "{input}"),
             ]
         )
-        document_chain = create_stuff_documents_chain(self.llm, prompt)
+        document_chain = create_stuff_documents_chain(self.model.llm, prompt)
 
         self.chain = create_retrieval_chain(retriever_chain, document_chain)
-        self.retrieval_chain = True
 
-    def undo(self):
-        self.chat_history.pop()
-        self.chat_history.pop()
+    def get_chain(self):
+        return self.chain
 
-    def clear(self):
+
+class ChatBot:
+    def __init__(self, chain: Chain):
         self.chat_history = []
+        self.chain = chain
 
-    def predict(self, message, history):
+    def get_simple_answer(self, message):
+        answer = self.chain.get_chain().invoke(message)
+        self.add_history(message, answer)
+        return answer
 
-        if self.retrieval_chain:
-            response = self.chain.invoke(
+    def get_conversational_answer(self, message):
+        answer = self.chain.get_chain().invoke(
                 {"chat_history": self.chat_history, "input": message}
-            )["answer"]
-        else:
-            response = self.chain.invoke(
-                message
             )
+        self.add_history(message, answer)
+        return answer
 
-        # self.get_apa_reference(response)
+    def get_retrieval_answer(self, message):
+        answer = self.chain.get_chain().invoke(
+            {"chat_history": self.chat_history, "input": message}
+        )["answer"]
+        self.add_history(message, answer)
+        return answer
 
+    def add_history(self, message, answer):
         self.chat_history.append(HumanMessage(content=message))
-        self.chat_history.append(AIMessage(content=response))
+        self.chat_history.append(AIMessage(content=answer))
 
-        return response
-
-    def process(self, filepath):
-        self.get_docs(filepath)
-        self.get_vector()
-        self.get_chain()
-        return "Done"
-
-    def get_apa_reference(self, response):
-        r_docs = self.vector.similarity_search(response, k=2)
-        print(r_docs)
-
-    def get_models(self):
-        result = subprocess.run(['ollama', 'list'], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        open_models = [m.split()[0] for m in result.stdout.decode('utf-8').split("\n")[1:-1]]
-        openai_models = ["gpt-3.5-turbo", "gpt-4"]
-        return open_models if not self.openai else openai_models
-
-
-chatbot = Chatbot()
-
-undo_button = gr.Button("↩️ Undo")
-clear_button = gr.Button("🗑️  Clear")
-
-with gr.Blocks() as demo:
-    undo_button.click(chatbot.undo)
-    clear_button.click(chatbot.clear())
-    gr.ChatInterface(chatbot.predict, retry_btn="🔄  Retry", undo_btn=undo_button, clear_btn=clear_button)
-
-    progress_bar = gr.Label("Upload your PDF")
-    file = gr.File(file_types=[".pdf"])
-
-    models = gr.Radio(value="Open Source", label="Model Source", choices=["OpenAI", "Open Source"])
-    openai_api_text = gr.Text(placeholder="Open AI API key", visible=False, interactive=True, type="password")
-    selected_model = gr.Dropdown(label="Model", choices=["llama2:latest"], value="llama2:latest")
-
-    models_map = {
-        "OpenAI": ["gpt-3.5-turbo", "gpt-4"],
-        "Open Source": chatbot.get_models(),
-    }
-
-
-    def filter_models(species):
-        visible = species == "OpenAI"
-        if not visible:
-            chatbot.set_opensource()
-        return gr.Dropdown(
-            choices=models_map[species], value=models_map[species][0]
-        ), gr.Text(visible=visible)
-
-    openai_api_text.input(chatbot.set_openai, openai_api_text)
-    models.change(filter_models, models, [selected_model, openai_api_text])
-
-    selected_model.change(chatbot.set_model, inputs=selected_model, outputs=progress_bar)
-    process_btn = gr.Button("Process")
-    process_btn.click(chatbot.process, inputs=file, outputs=progress_bar)
 
 if __name__ == "__main__":
-    demo.queue().launch()
+
+    model_name = input("Ingrese el nombre del modelo (por ejemplo, OpenAI o OLLAMA): ")
+    chatbot_model = OllamaModel("llama2")
+
+    if model_name.lower() == "openai":
+        openai_api_key = input("Ingrese la API key de OpenAI: ")
+        chatbot_model = OpenAIModel("gpt-3.5-turbo", openai_api_key)
+    elif model_name.lower() == "ollama":
+        chatbot_model = OllamaModel("llama2")
+    else:
+        print("Nombre de modelo no válido.")
+        exit()
+
+    vectorstore = VectorStore()
+    vectorstore.set_docs(
+        "/home/jorge/Development/chat_with_PDF/La temporada invernal será más húmeda de lo normal y con precipitaciones.pdf")
+    vectorstore.set_embeddings(chatbot_model.embeddings)
+    vectorstore.set_vector()
+
+    chatbot_chain = Chain(chatbot_model)
+    chatbot_chain.set_retrieval_chain(vectorstore)
+    chatbot = ChatBot(chatbot_chain)
+
+    while True:
+        user_message = input("Send your message:")
+        ai_answer = chatbot.get_retrieval_answer(user_message)
+        print(ai_answer)
