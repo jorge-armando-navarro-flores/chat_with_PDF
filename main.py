@@ -4,7 +4,7 @@ from langchain_community.llms import Ollama
 from langchain_openai import ChatOpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import gradio as gr
-from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
@@ -16,7 +16,8 @@ from langchain_core.messages import HumanMessage, AIMessage
 from langchain.chains import create_history_aware_retriever
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain.chains import create_retrieval_chain
-from langchain_community.llms import HuggingFaceEndpoint
+from langchain_community.llms import HuggingFaceEndpoint, HuggingFaceTextGenInference
+from langchain_community.chat_models.huggingface import ChatHuggingFace
 
 output_parser = StrOutputParser()
 
@@ -52,19 +53,19 @@ class OllamaModel(LLM):
 
 
 class HFModel(LLM):
-    def __init__(self, name, endpoint_url, token):
+    def __init__(self, name, token):
         super().__init__(name)
-        self.llm = HuggingFaceEndpoint(
-            endpoint_url=endpoint_url,
-            max_new_tokens=1,
-            top_k=50,
-            temperature=0.1,
-            repetition_penalty=1.03,
-            huggingfacehub_api_token=token
-        )
-        self.embeddings = HuggingFaceInferenceAPIEmbeddings(
-            api_key=token, model_name="sentence-transformers/all-MiniLM-l6-v2"
-        )
+        self.llm = ChatHuggingFace(llm=HuggingFaceEndpoint(
+                    huggingfacehub_api_token="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",
+                    repo_id="HuggingFaceH4/zephyr-7b-beta",
+                    task="text-generation",
+                    max_new_tokens=512,
+                    top_k=30,
+                    temperature=0.1,
+                    repetition_penalty=1.03,
+
+                ))
+        self.embeddings = HuggingFaceEmbeddings()
 
 
 class Docs:
@@ -179,6 +180,26 @@ class ChatBot:
         self.chat_history.append(AIMessage(content=answer))
 
 
+class GUI:
+    def __init__(self):
+        with gr.Blocks() as demo:
+            model_type = gr.Radio(value="OpenAI", label="Model Source", choices=["OpenAI", "Ollama", "HuggingFace"])
+
+        self.gui = demo
+
+    def filter_model_types(self, model_type):
+        models_types_map = {
+            "OpenAI": ["gpt-3.5-turbo", "gpt-4"],
+            "Ollama": ["llama2", "mistral", "gemma"],
+            "HuggingFace": ["llama2", "mistral", "gemma"]
+        }
+
+
+
+    def get_gui(self):
+        return self.gui
+
+
 if __name__ == "__main__":
 
     model_name = input("Ingrese el nombre del modelo (por ejemplo, OpenAI o OLLAMA): ")
@@ -188,9 +209,8 @@ if __name__ == "__main__":
         openai_api_key = input("Ingrese la API key de OpenAI: ")
         chatbot_model = OpenAIModel("gpt-3.5-turbo", openai_api_key)
     elif model_name.lower() == "hf":
-        hf_endpoint_url = input("input your HF endpoint url: ")
         hf_token = input("input your HF token: ")
-        chatbot_model = HFModel("hf-model", hf_endpoint_url, hf_token)
+        chatbot_model = HFModel("hf-model", hf_token)
     elif model_name.lower() == "ollama":
         chatbot_model = OllamaModel("llama2")
     else:
