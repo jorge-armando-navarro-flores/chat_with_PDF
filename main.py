@@ -4,7 +4,7 @@ from langchain_community.llms import Ollama
 from langchain_openai import ChatOpenAI
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import gradio as gr
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings, HuggingFaceInferenceAPIEmbeddings
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.vectorstores import FAISS
 from langchain_openai import OpenAIEmbeddings
@@ -39,7 +39,7 @@ class LLM(ABC):
 
 
 class OpenAIModel(LLM):
-    def __init__(self, name: str, api_key: str):
+    def __init__(self, name: str, api_key: str = None):
         super().__init__(name)
         self.llm = ChatOpenAI(model=self.name, openai_api_key=api_key)
         self.embeddings = OpenAIEmbeddings()
@@ -56,15 +56,15 @@ class HFModel(LLM):
     def __init__(self, name, token):
         super().__init__(name)
         self.llm = ChatHuggingFace(llm=HuggingFaceEndpoint(
-                    huggingfacehub_api_token="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",
-                    repo_id="HuggingFaceH4/zephyr-7b-beta",
-                    task="text-generation",
-                    max_new_tokens=512,
-                    top_k=30,
-                    temperature=0.1,
-                    repetition_penalty=1.03,
+            huggingfacehub_api_token=f"{token}",
+            repo_id="HuggingFaceH4/zephyr-7b-beta",
+            task="text-generation",
+            max_new_tokens=512,
+            top_k=30,
+            temperature=0.1,
+            repetition_penalty=1.03,
 
-                ))
+        ))
         self.embeddings = HuggingFaceEmbeddings()
 
 
@@ -180,56 +180,87 @@ class ChatBot:
         self.chat_history.append(AIMessage(content=answer))
 
 
-class GUI:
-    def __init__(self):
+class ChatbotController:
+    def __init__(self, model: LLM):
+        self.model = model
+        self.model_types = {
+            "OpenAI": ["gpt-3.5-turbo", "gpt-4"],
+            "Ollama": ["llama2:latest", "mistral:latest", "gemma:latest"],
+            "HuggingFace": ["HuggingFaceH4/zephyr-7b-beta", "mistralai/Mistral-7B-v0.1"]
+        }
+
+    def set_model(self, model_type, model_ref, api_token=None):
+        if model_type == "OpenAI":
+            self.model = OpenAIModel(model_ref, api_token)
+        elif model_type == "HuggingFace":
+            self.model = HFModel(model_ref, api_token)
+        else:
+            self.model = OllamaModel(model_ref)
+
+        return "Done"
+
+
+class ChatbotView:
+    def __init__(self, controller: ChatbotController):
+        self.controller = controller
+
         with gr.Blocks() as demo:
             model_type = gr.Radio(value="OpenAI", label="Model Source", choices=["OpenAI", "Ollama", "HuggingFace"])
+            api_token = gr.Text("OpenAI")
+            selected_model = gr.Dropdown(value="gpt-3.5-turbo", choices=self.controller.model_types["OpenAI"])
+            progress_bar = gr.Label("Upload your PDF")
+
+            model_type.change(self.filter_model_types, model_type, [api_token, selected_model])
+            selected_model.change(self.controller.set_model, inputs=[model_type, selected_model], outputs=progress_bar)
 
         self.gui = demo
 
     def filter_model_types(self, model_type):
-        models_types_map = {
-            "OpenAI": ["gpt-3.5-turbo", "gpt-4"],
-            "Ollama": ["llama2", "mistral", "gemma"],
-            "HuggingFace": ["llama2", "mistral", "gemma"]
-        }
-
-
+        return gr.Text(model_type), gr.Dropdown(value=self.controller.model_types[model_type][0],
+                                                choices=self.controller.model_types[model_type])
 
     def get_gui(self):
         return self.gui
 
 
+
 if __name__ == "__main__":
+    chatbot_controller = ChatbotController(OpenAIModel("gpt-3.5-turbo"))
+    chatbot_view = ChatbotView(chatbot_controller)
+    chatbot_view.get_gui().launch()
 
-    model_name = input("Ingrese el nombre del modelo (por ejemplo, OpenAI o OLLAMA): ")
-    chatbot_model = OllamaModel("llama2")
 
-    if model_name.lower() == "openai":
-        openai_api_key = input("Ingrese la API key de OpenAI: ")
-        chatbot_model = OpenAIModel("gpt-3.5-turbo", openai_api_key)
-    elif model_name.lower() == "hf":
-        hf_token = input("input your HF token: ")
-        chatbot_model = HFModel("hf-model", hf_token)
-    elif model_name.lower() == "ollama":
-        chatbot_model = OllamaModel("llama2")
-    else:
-        print("Nombre de modelo no válido.")
-        exit()
-
-    user_docs = Docs()
-    user_docs.set_pdf_docs(
-        "/home/jorge/Development/chat_with_PDF/La temporada invernal será más húmeda de lo normal y con precipitaciones.pdf")
-
-    vectorstore = VectorStore(user_docs)
-    vectorstore.set_vector(chatbot_model.get_embeddings())
-
-    chatbot_chain = Chain(chatbot_model)
-    chatbot_chain.set_retrieval_chain(vectorstore)
-
-    chatbot = ChatBot(chatbot_chain)
-
-    while True:
-        user_message = input("Send your message:")
-        ai_answer = chatbot.get_retrieval_answer(user_message)
-        print(ai_answer)
+    # model_name = input("Ingrese el nombre del modelo (por ejemplo, OpenAI o OLLAMA): ")
+    # chatbot_model = OllamaModel("llama2")
+    #
+    # if model_name.lower() == "openai":
+    #     openai_api_key = input("Input ypur OpenAI Api Key, see on https://platform.openai.com/api-keys: ")
+    #     model_ref = input("input your model ref, see on https://platform.openai.com/docs/models/gpt-3-5-turbo: ")
+    #     chatbot_model = OpenAIModel(model_ref, openai_api_key)
+    # elif model_name.lower() == "hf":
+    #     hf_token = input("input your HF token see on https://huggingface.co/settings/tokens:")
+    #     model_ref = input("input your model ref: see on https://huggingface.co/models?pipeline_tag=text-generation&sort=trending")
+    #     chatbot_model = HFModel(model_ref, hf_token)
+    # elif model_name.lower() == "ollama":
+    #     model_ref = input("input your model ref: ")
+    #     chatbot_model = OllamaModel(model_ref)
+    # else:
+    #     print("Nombre de modelo no válido.")
+    #     exit()
+    #
+    # user_docs = Docs()
+    # user_docs.set_pdf_docs(
+    #     "/home/jorge/Development/chat_with_PDF/La temporada invernal será más húmeda de lo normal y con precipitaciones.pdf")
+    #
+    # vectorstore = VectorStore(user_docs)
+    # vectorstore.set_vector(chatbot_model.get_embeddings())
+    #
+    # chatbot_chain = Chain(chatbot_model)
+    # chatbot_chain.set_retrieval_chain(vectorstore)
+    #
+    # chatbot = ChatBot(chatbot_chain)
+    #
+    # while True:
+    #     user_message = input("Send your message:")
+    #     ai_answer = chatbot.get_retrieval_answer(user_message)
+    #     print(ai_answer)
