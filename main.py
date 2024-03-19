@@ -175,14 +175,19 @@ class ChatBot:
         self.add_history(message, answer)
         return answer
 
+    def get_test_answer(self, message):
+        return message
+
     def add_history(self, message, answer):
         self.chat_history.append(HumanMessage(content=message))
         self.chat_history.append(AIMessage(content=answer))
 
 
 class ChatbotController:
-    def __init__(self, model: LLM):
-        self.model = model
+    def __init__(self):
+        self.model = OpenAIModel("gpt-3.5-turbo")
+        self.chain = Chain(self.model)
+        self.chatbot = ChatBot(self.chain)
         self.model_types = {
             "OpenAI": ["gpt-3.5-turbo", "gpt-4"],
             "Ollama": ["llama2:latest", "mistral:latest", "gemma:latest"],
@@ -190,14 +195,25 @@ class ChatbotController:
         }
 
     def set_model(self, model_type, model_ref, api_token=None):
-        if model_type == "OpenAI":
-            self.model = OpenAIModel(model_ref, api_token)
-        elif model_type == "HuggingFace":
-            self.model = HFModel(model_ref, api_token)
-        else:
-            self.model = OllamaModel(model_ref)
+
+        try:
+            if model_type == "OpenAI":
+                self.model = OpenAIModel(model_ref, api_token)
+            elif model_type == "HuggingFace":
+                self.model = HFModel(model_ref, api_token)
+            else:
+                self.model = OllamaModel(model_ref)
+
+            self.chain = Chain(self.model)
+            self.chain.set_simple_chain()
+            self.chatbot = ChatBot(self.chain)
+        except Exception as e:
+            return str(e)
 
         return "Done"
+
+    def get_answer(self, message, history):
+        return self.chatbot.get_simple_answer(message)
 
 
 class ChatbotView:
@@ -205,18 +221,30 @@ class ChatbotView:
         self.controller = controller
 
         with gr.Blocks() as demo:
-            model_type = gr.Radio(value="OpenAI", label="Model Source", choices=["OpenAI", "Ollama", "HuggingFace"])
-            api_token = gr.Text("OpenAI")
-            selected_model = gr.Dropdown(value="gpt-3.5-turbo", choices=self.controller.model_types["OpenAI"])
-            progress_bar = gr.Label("Upload your PDF")
+            with gr.Row():
+                with gr.Column(scale=1):
+                    model_type = gr.Radio(value="OpenAI", label="Model Source", choices=["OpenAI", "Ollama", "HuggingFace"])
+                    api_token = gr.Text("input your API token")
+                    selected_model = gr.Dropdown(value="gpt-3.5-turbo", choices=self.controller.model_types["OpenAI"])
+                    progress_bar = gr.Label("Upload your PDF")
 
-            model_type.change(self.filter_model_types, model_type, [api_token, selected_model])
-            selected_model.change(self.controller.set_model, inputs=[model_type, selected_model], outputs=progress_bar)
+                model_type.change(self.filter_model_types, [model_type], outputs=[api_token, selected_model])
+                selected_model.change(self.controller.set_model, inputs=[model_type, selected_model, api_token],
+                                      outputs=progress_bar)
+
+                api_token.change(self.controller.set_model, inputs=[model_type, selected_model, api_token],
+                                 outputs=progress_bar)
+
+                if self.controller.chatbot.chain:
+                    print("CHAIN", self.controller.chatbot.chain)
+
+                with gr.Column(scale=3):
+                    gr.ChatInterface(self.controller.get_answer)
 
         self.gui = demo
 
     def filter_model_types(self, model_type):
-        return gr.Text(model_type), gr.Dropdown(value=self.controller.model_types[model_type][0],
+        return gr.Text("input your API token"), gr.Dropdown(value=self.controller.model_types[model_type][0],
                                                 choices=self.controller.model_types[model_type])
 
     def get_gui(self):
@@ -225,7 +253,7 @@ class ChatbotView:
 
 
 if __name__ == "__main__":
-    chatbot_controller = ChatbotController(OpenAIModel("gpt-3.5-turbo"))
+    chatbot_controller = ChatbotController()
     chatbot_view = ChatbotView(chatbot_controller)
     chatbot_view.get_gui().launch()
 
